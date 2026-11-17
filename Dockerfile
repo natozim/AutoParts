@@ -5,7 +5,7 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Directorio base de trabajo dentro del contenedor
+# Directorio de trabajo donde reside manage.py
 WORKDIR /app
 
 # Instalar dependencias del sistema necesarias para compilación de paquetes
@@ -17,9 +17,6 @@ RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r re
 
 # Copiar el código fuente completo del proyecto
 COPY . /app/
-
-# Establecer el directorio donde reside manage.py de Django
-WORKDIR /app/backend
 
 # Exponer el puerto estándar de ejecución de Django
 EXPOSE 8000
