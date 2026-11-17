@@ -1,0 +1,79 @@
+name: CI/CD & DevSecOps Pipeline - AutoPartss
+
+on:
+  push:
+    branches: [ develop ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  build-test-and-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. Checkout del código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 2. Construir imagen Docker
+        run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/autopartss:${{ github.sha }} .
+
+      - name: 3. Ejecutar pruebas unitarias dentro del contenedor
+        run: docker run --rm ${{ secrets.DOCKERHUB_USERNAME }}/autopartss:${{ github.sha }} python manage.py test
+
+      - name: 4. Análisis estático con SonarCloud (PR a main)
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.qualitygate.wait=true
+
+      - name: 5. Análisis de seguridad con Snyk (PR a main)
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        uses: snyk/actions/python@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --file=requirements.txt --severity-threshold=high
+
+      - name: 6. GitHub Advanced Security - Dependency Review (PR a main)
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
+      - name: 7. GitHub Advanced Security - Inicializar CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+
+      - name: 8. Ejecutar análisis CodeQL
+        uses: github/codeql-action/analyze@v3
+
+      - name: 9. Escaneo de imagen con Docker Scout
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: ${{ secrets.DOCKERHUB_USERNAME }}/autopartss:${{ github.sha }}
+          only-severities: critical,high
+          exit-code: true
+
+      - name: 10. Login en Docker Hub (Solo si todo lo anterior pasa)
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 11. Publicar imagen en Docker Hub
+        run: |
+          docker tag ${{ secrets.DOCKERHUB_USERNAME }}/autopartss:${{ github.sha }} ${{ secrets.DOCKERHUB_USERNAME }}/autopartss:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/autopartss:${{ github.sha }}
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/autopartss:latest
